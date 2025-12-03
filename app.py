@@ -7,22 +7,17 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
-
-# =========================
-# GROQ CONFIG (SECURE)
-# =========================
-
+# Get API key from environment
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Check if API key exists
+# Handle missing API key gracefully for Render
 if not GROQ_API_KEY:
-    print("❌ ERROR: GROQ_API_KEY not found in .env file!")
-    print("Please create a .env file with:")
-    print("GROQ_API_KEY=your_groq_api_key_here")
-    raise ValueError("GROQ_API_KEY environment variable is required!")
+    print("⚠️ WARNING: GROQ_API_KEY not found! Chat will show error messages.")
+    client = None
+else:
+    client = Groq(api_key=GROQ_API_KEY)
+    print("✅ Groq client initialized successfully")
 
-client = Groq(api_key=GROQ_API_KEY)
 
 # =========================
 # RED PERSONA (SYSTEM PROMPT)
@@ -224,3 +219,4 @@ if __name__ == "__main__":
     print(f"✅ Groq API Key Loaded: {GROQ_API_KEY[:10]}...***")
     print("=" * 60)
     app.run(debug=True, host="0.0.0.0", port=5000)
+
