@@ -1,36 +1,33 @@
 from flask import Flask, request, jsonify, render_template
 from groq import Groq
-from datetime import datetime
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (local development)
+# Load environment variables
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
 
 # =========================
-# GROQ CONFIG (RENDER SAFE)
+# GROQ CONFIG (FULL AI)
 # =========================
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Handle missing API key gracefully for Render
-if not GROQ_API_KEY:
-    print("⚠️ WARNING: GROQ_API_KEY not found! Chat will show error messages.")
-    client = None
-else:
+client = None
+if GROQ_API_KEY:
     try:
         client = Groq(api_key=GROQ_API_KEY)
-        print("✅ Groq client initialized successfully")
+        print("✅ Groq client initialized - FULL AI MODE")
     except Exception as e:
-        print(f"❌ Failed to initialize Groq client: {e}")
+        print(f"❌ Groq init failed: {e}")
         client = None
+else:
+    print("⚠️ No GROQ_API_KEY - Set in Render Environment Variables")
+    client = None
 
 # =========================
 # RED PERSONA (SYSTEM PROMPT)
 # =========================
-
 SYSTEM_PROMPT = (
     "You are an AI assistant called RED. "
     "Your name comes from the app's bold red visual theme, which represents speed, focus, and power. "
@@ -44,42 +41,46 @@ SYSTEM_PROMPT = (
 
 @app.route('/')
 def index():
+    print("🌐 Serving RED AI chat interface")
     return render_template('index.html')
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    """Handle chat requests with error handling"""
+    print("🔥 /chat endpoint called")
     
-    # Check if client is available
+    # Check client availability
     if not client:
         return jsonify({
             'success': False,
-            'error': 'AI service not configured. Please contact administrator.'
+            'error': 'GROQ_API_KEY not configured. Check Render Environment Variables.'
         }), 503
     
     try:
         data = request.json
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data'}), 400
+            
         message = data.get('message', '').strip()
-        
         if not message:
             return jsonify({'success': False, 'error': 'Empty message'}), 400
         
-        print(f"📨 User message: {message[:50]}...")
+        print(f"📨 User: {message[:50]}...")
         
-        # Create chat completion
+        # Groq AI Chat Completion (FULL POWER)
         chat_completion = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",  # Fast and powerful model
+            model="llama-3.1-70b-versatile",  # Fastest, most powerful
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": message}
             ],
             temperature=0.7,
-            max_tokens=1000,
+            max_tokens=1500,
+            top_p=0.9,
             stream=False
         )
         
         response = chat_completion.choices[0].message.content
-        print(f"🤖 AI response sent: {len(response)} chars")
+        print(f"🤖 AI Response: {len(response)} chars")
         
         return jsonify({
             'success': True,
@@ -90,18 +91,19 @@ def chat():
         print(f"❌ Chat error: {str(e)}")
         return jsonify({
             'success': False, 
-            'error': 'AI service temporarily unavailable. Please try again.'
-        }), 503
+            'error': f'AI service error: {str(e)[:100]}'
+        }), 500
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({'error': 'Route not found'}), 404
+    return jsonify({'error': 'Endpoint not found'}), 404
 
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Render requires binding to 0.0.0.0 and using PORT env var
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    host = os.environ.get('HOST', '0.0.0.0')
+    print(f"🚀 Starting RED AI on {host}:{port}")
+    app.run(host=host, port=port, debug=False)
