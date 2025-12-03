@@ -1,109 +1,73 @@
 from flask import Flask, request, jsonify, render_template
-from groq import Groq
+from flask_cors import CORS
 import os
+import requests
 from dotenv import load_dotenv
+import json
 
-# Load environment variables
 load_dotenv()
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
+CORS(app)  # Allow frontend requests
 
-# =========================
-# GROQ CONFIG (FULL AI)
-# =========================
+# API Config
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-client = None
-if GROQ_API_KEY:
-    try:
-        client = Groq(api_key=GROQ_API_KEY)
-        print("✅ Groq client initialized - FULL AI MODE")
-    except Exception as e:
-        print(f"❌ Groq init failed: {e}")
-        client = None
-else:
-    print("⚠️ No GROQ_API_KEY - Set in Render Environment Variables")
-    client = None
-
-# =========================
-# RED PERSONA (SYSTEM PROMPT)
-# =========================
-SYSTEM_PROMPT = (
-    "You are an AI assistant called RED. "
-    "Your name comes from the app's bold red visual theme, which represents speed, focus, and power. "
-    "When users ask who you are or why you're called RED, say that you're RED, "
-    "the AI assistant for this app, and your name reflects the app's fast, powerful red design. "
-    "You are helpful, concise, and respond quickly. "
-    "Use bullet points when explaining lists or steps. "
-    "Keep responses under 300 words unless asked for more detail. "
-    "Always be friendly and professional."
-)
+SYSTEM_PROMPT = """You are RED, a fast AI assistant. Be helpful, concise, friendly. Use bullets for lists."""
 
 @app.route('/')
 def index():
-    print("🌐 Serving RED AI chat interface")
+    print("🌐 Frontend served")
     return render_template('index.html')
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    print("🔥 /chat endpoint called")
+    print("🔥 CHAT HIT!")
     
-    # Check client availability
-    if not client:
-        return jsonify({
-            'success': False,
-            'error': 'GROQ_API_KEY not configured. Check Render Environment Variables.'
-        }), 503
+    if not GROQ_API_KEY:
+        return jsonify({'success': False, 'error': 'API Key missing'})
+    
+    data = request.json
+    message = data.get('message', '')
+    
+    if not message:
+        return jsonify({'success': False, 'error': 'No message'})
+    
+    print(f"📨 {message[:50]}...")
     
     try:
-        data = request.json
-        if not data:
-            return jsonify({'success': False, 'error': 'No JSON data'}), 400
-            
-        message = data.get('message', '').strip()
-        if not message:
-            return jsonify({'success': False, 'error': 'Empty message'}), 400
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
         
-        print(f"📨 User: {message[:50]}...")
-        
-        # Groq AI Chat Completion (FULL POWER)
-        chat_completion = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",  # Fastest, most powerful
-            messages=[
+        payload = {
+            "model": "llama-3.1-70b-versatile",
+            "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": message}
             ],
-            temperature=0.7,
-            max_tokens=1500,
-            top_p=0.9,
-            stream=False
-        )
+            "temperature": 0.7,
+            "max_tokens": 1500
+        }
         
-        response = chat_completion.choices[0].message.content
-        print(f"🤖 AI Response: {len(response)} chars")
+        response = requests.post(GROQ_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
         
-        return jsonify({
-            'success': True,
-            'response': response
-        })
+        result = response.json()
+        ai_response = result['choices'][0]['message']['content']
         
+        print(f"🤖 {len(ai_response)} chars")
+        return jsonify({'success': True, 'response': ai_response})
+        
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Request error: {e}")
+        return jsonify({'success': False, 'error': 'AI service unavailable'})
     except Exception as e:
-        print(f"❌ Chat error: {str(e)}")
-        return jsonify({
-            'success': False, 
-            'error': f'AI service error: {str(e)[:100]}'
-        }), 500
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Endpoint not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({'error': 'Internal server error'}), 500
+        print(f"❌ Error: {e}")
+        return jsonify({'success': False, 'error': 'Processing error'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    host = os.environ.get('HOST', '0.0.0.0')
-    print(f"🚀 Starting RED AI on {host}:{port}")
-    app.run(host=host, port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)
