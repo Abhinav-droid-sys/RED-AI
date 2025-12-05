@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, render_template_string, send_from_directory
 from groq import Groq
 from datetime import datetime
 import os
@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # =========================
 # GROQ CONFIG (SECURE)
@@ -43,7 +43,6 @@ SYSTEM_PROMPT = (
 chat_histories = {}  # { session_id: [ {role, content}, ... ] }
 chat_titles = {}     # { session_id: "Title" }
 
-
 def generate_chat_title(first_message: str) -> str:
     """Generate a short title for the chat based on first user message."""
     try:
@@ -78,6 +77,45 @@ def generate_chat_title(first_message: str) -> str:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/privacy")
+def privacy():
+    # A minimal privacy page — you can expand this further (save as template if you prefer)
+    content = """
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Privacy — RED</title>
+      <style>
+        body { font-family: Inter, system-ui, Arial; background:#070708; color: #eee; padding:30px; }
+        .card { max-width:800px; margin:30px auto; background:#0f0f10; border-radius:12px; padding:24px; border:1px solid #222; }
+        a { color:#FF6B6B; text-decoration:none; font-weight:700; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>Privacy & Data</h1>
+        <p>This is a brief privacy note for <strong>RED</strong>.</p>
+        <ul>
+          <li>By default messages are stored locally in your browser (localStorage).</li>
+          <li>If you use <em>Incognito</em> mode in the app, messages are kept only temporarily (in memory) and not saved to localStorage.</li>
+          <li>Server-side requests are sent to the Groq API to generate assistant responses. Inputs sent to the server will be processed by the underlying model provider.</li>
+          <li>We recommend avoiding sharing highly-sensitive personal data (SSNs, passwords, payment details) in chats.</li>
+        </ul>
+        <p>If you need a formal privacy policy for compliance, add a more detailed page here with contact & retention details.</p>
+        <p><a href="/">Back to RED</a></p>
+      </div>
+    </body>
+    </html>
+    """
+    return render_template_string(content)
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "time": datetime.utcnow().isoformat() + "Z"}), 200
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -126,6 +164,7 @@ def chat():
 
         messages.append({"role": "user", "content": prompt})
 
+        # Call Groq
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
@@ -151,26 +190,15 @@ def chat():
                 chat_title = generate_chat_title(prompt)
                 chat_titles[session_id] = chat_title
 
-        return jsonify(
-            {
-                "success": True,
-                "response": assistant_text,
-                "chat_title": chat_title,
-            }
-        )
+        return jsonify({"success": True, "response": assistant_text, "chat_title": chat_title})
 
     except Exception as e:
         error_msg = str(e)
         print(f"[CHAT ERROR] {error_msg}")
 
         if "rate" in error_msg.lower() or "429" in error_msg:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "Rate limit reached. Please wait a moment. (Free tier: 30 requests/minute)",
-                }
-            )
-        return jsonify({"success": False, "error": error_msg})
+            return jsonify({"success": False, "error": "Rate limit reached. Please wait a moment. (Free tier: 30 requests/minute)"}), 429
+        return jsonify({"success": False, "error": "Internal server error"}), 500
 
 
 @app.route("/api/chats", methods=["GET"])
@@ -178,12 +206,7 @@ def get_chats():
     """Return list of all named chat sessions for sidebar."""
     chats = []
     for session_id, title in chat_titles.items():
-        chats.append(
-            {
-                "id": session_id,
-                "title": title or "New Chat",
-            }
-        )
+        chats.append({"id": session_id, "title": title or "New Chat"})
     return jsonify({"success": True, "chats": chats})
 
 
@@ -196,7 +219,7 @@ def get_chat_history():
         history = chat_histories.get(session_id, [])
         return jsonify({"success": True, "history": history})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/chat/delete", methods=["POST"])
@@ -213,7 +236,7 @@ def delete_chat():
 
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":
@@ -223,4 +246,4 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"✅ Groq API Key Loaded: {GROQ_API_KEY[:10]}...***")
     print("=" * 60)
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
